@@ -1,0 +1,181 @@
+From ae6853f1c3e9617aec23298db230449336eadb1d Mon Sep 17 00:00:00 2001
+From: esmond-adjei <xmongram@gmail.com>
+Date: Thu, 26 Oct 2023 01:16:57 +0000
+Subject: [PATCH 1/2] fixed datafeed pipeline to fetch data continuously when
+ button is clicked
+
+---
+ src/App.tsx | 23 ++++++++++++++++++-----
+ 1 file changed, 18 insertions(+), 5 deletions(-)
+
+diff --git a/src/App.tsx b/src/App.tsx
+index 0728518..d495a85 100755
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -15,6 +15,7 @@ interface IState {
+  * It renders title, button and Graph react element.
+  */
+ class App extends Component<{}, IState> {
++  intervalId: NodeJS.Timeout | null = null;
+   constructor(props: {}) {
+     super(props);
+ 
+@@ -36,13 +37,25 @@ class App extends Component<{}, IState> {
+    * Get new data from server and update the state with the new data
+    */
+   getDataFromServer() {
+-    DataStreamer.getData((serverResponds: ServerRespond[]) => {
+-      // Update the state by creating a new array of data that consists of
+-      // Previous data in the state and the new data from server
+-      this.setState({ data: [...this.state.data, ...serverResponds] });
+-    });
++    const fetchdata = () => {
++      DataStreamer.getData((serverResponds: ServerRespond[]) => {
++        // Update the state by creating a new array of data that consists of
++        // Previous data in the state and the new data from server
++        this.setState({data: [...this.state.data, ...serverResponds]});
++      });
++    }
++
++    if (this.intervalId) {
++      clearInterval(this.intervalId);
++    }
++    this.intervalId = setInterval(fetchdata, 100);
+   }
+ 
++  componentWillUnmount() {
++    if (this.intervalId) {
++      clearInterval(this.intervalId);
++    }
++  }
+   /**
+    * Render the App react component
+    */
+-- 
+2.34.1
+
+
+From e79af9f5692144431ca40d52749b8ac0f2aaef7f Mon Sep 17 00:00:00 2001
+From: esmond-adjei <xmongram@gmail.com>
+Date: Thu, 26 Oct 2023 01:55:21 +0000
+Subject: [PATCH 2/2] fixed datafeed pipeline to fetch data continuously when
+ button is clicked
+
+---
+ src/App.tsx   | 28 ++++++++++++++--------------
+ src/Graph.tsx | 15 +++++++++++++--
+ 2 files changed, 27 insertions(+), 16 deletions(-)
+
+diff --git a/src/App.tsx b/src/App.tsx
+index d495a85..ea6df31 100755
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -2,12 +2,14 @@ import React, { Component } from 'react';
+ import DataStreamer, { ServerRespond } from './DataStreamer';
+ import Graph from './Graph';
+ import './App.css';
++import {clearInterval, setInterval} from "timers";
+ 
+ /**
+  * State declaration for <App />
+  */
+ interface IState {
+   data: ServerRespond[],
++  showGraph: boolean,
+ }
+ 
+ /**
+@@ -23,6 +25,7 @@ class App extends Component<{}, IState> {
+       // data saves the server responds.
+       // We use this state to parse data down to the child element (Graph) as element property
+       data: [],
++      showGraph: false,
+     };
+   }
+ 
+@@ -30,31 +33,28 @@ class App extends Component<{}, IState> {
+    * Render Graph react component with state.data parse as property data
+    */
+   renderGraph() {
+-    return (<Graph data={this.state.data}/>)
++    if (this.state.showGraph){
++      return (<Graph data={this.state.data}/>)
++    }
+   }
+ 
+   /**
+    * Get new data from server and update the state with the new data
+    */
+   getDataFromServer() {
+-    const fetchdata = () => {
++    let counter = 0;
++    const interval = setInterval(() => {
+       DataStreamer.getData((serverResponds: ServerRespond[]) => {
+         // Update the state by creating a new array of data that consists of
+         // Previous data in the state and the new data from server
+-        this.setState({data: [...this.state.data, ...serverResponds]});
++        this.setState({data: serverResponds, showGraph: true});
+       });
+-    }
+-
+-    if (this.intervalId) {
+-      clearInterval(this.intervalId);
+-    }
+-    this.intervalId = setInterval(fetchdata, 100);
+-  }
+ 
+-  componentWillUnmount() {
+-    if (this.intervalId) {
+-      clearInterval(this.intervalId);
+-    }
++      counter++;
++      if (counter > 1000) {
++        clearInterval(interval);
++      }
++    }, 100);
+   }
+   /**
+    * Render the App react component
+diff --git a/src/Graph.tsx b/src/Graph.tsx
+index 3b2a7da..ca78b20 100644
+--- a/src/Graph.tsx
++++ b/src/Graph.tsx
+@@ -14,7 +14,7 @@ interface IProps {
+  * Perspective library adds load to HTMLElement prototype.
+  * This interface acts as a wrapper for Typescript compiler.
+  */
+-interface PerspectiveViewerElement {
++interface PerspectiveViewerElement extends HTMLElement {
+   load: (table: Table) => void,
+ }
+ 
+@@ -32,7 +32,7 @@ class Graph extends Component<IProps, {}> {
+ 
+   componentDidMount() {
+     // Get element to attach the table from the DOM.
+-    const elem: PerspectiveViewerElement = document.getElementsByTagName('perspective-viewer')[0] as unknown as PerspectiveViewerElement;
++    const elem = document.getElementsByTagName('perspective-viewer')[0] as unknown as PerspectiveViewerElement;
+ 
+     const schema = {
+       stock: 'string',
+@@ -49,6 +49,17 @@ class Graph extends Component<IProps, {}> {
+ 
+       // Add more Perspective configurations here.
+       elem.load(this.table);
++      elem.setAttribute('view', 'y_line');
++      elem.setAttribute('column-pivots', '["stock"]');
++      elem.setAttribute('row-pivots', '["timestamp"]');
++      elem.setAttribute('columns', '["top_ask_price"]');
++      elem.setAttribute('aggregates',
++          `{"stock": "distinct count",
++                "top_ask_price": "avg",
++                "top_bid_price": "avg",
++                "timestamp": "distinct count"
++                }`
++          )
+     }
+   }
+ 
+-- 
+2.34.1
+
